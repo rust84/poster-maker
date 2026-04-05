@@ -99,7 +99,11 @@ def best_background(images: dict) -> Optional[str]:
 
 def logo_white_score(img: Image.Image) -> float:
     """Return fraction of visible logo pixels that are bright, low-saturation white."""
-    arr = np.array(img.convert("RGBA"))
+    rgba = img.convert("RGBA")
+    bbox = rgba.getchannel("A").getbbox()
+    if bbox:
+        rgba = rgba.crop(bbox)
+    arr = np.array(rgba)
     visible = arr[:, :, 3] > 10
     if visible.sum() == 0:
         return 0.0

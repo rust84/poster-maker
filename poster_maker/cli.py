@@ -151,10 +151,12 @@ Usage examples:
             bg = inpaint_remove_text(bg, openai_key)
             print("  Inpainting complete.")
         except Exception as e:
-            print(f"  Warning: Inpainting failed ({e}) — continuing without it.")
+            print(f"\n  [!] Inpainting FAILED: {type(e).__name__}: {e}", file=sys.stderr)
+            print("  [!] Poster will use the unedited background — source text/logos may be visible.", file=sys.stderr)
+            print("  [!] Re-run with --skip-inpaint to suppress this warning.\n", file=sys.stderr)
 
     # ── Build shared base ────────────────────────────────────────────────────
-    base = build_base(bg, canonical, args.media_type, bg_source)
+    base = build_base(bg)
 
     # ── Output paths ─────────────────────────────────────────────────────────
     out_dir = Path(args.output_dir)

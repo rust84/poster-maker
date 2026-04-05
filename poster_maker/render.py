@@ -106,6 +106,9 @@ def draw_tracked(
 
 # ── CL2K guide ─────────────────────────────────────────────────────────────────
 
+_cl2k_guide_cache: Optional[dict] = None
+
+
 def extract_cl2k_guide_spec(path: Path = CL2K_GUIDE_PATH) -> dict:
     """Read the CL2K guide image and derive the usable logo guide box.
 
@@ -113,6 +116,10 @@ def extract_cl2k_guide_spec(path: Path = CL2K_GUIDE_PATH) -> dict:
     map directly to poster space. For y, we align the guide's 'Gradient Darkest Line'
     to the known poster y=1360 and derive the other rows from that offset.
     """
+    global _cl2k_guide_cache
+    if _cl2k_guide_cache is not None:
+        return _cl2k_guide_cache
+
     fallback = {
         "main_left": 200,
         "main_right": 800,
@@ -171,7 +178,7 @@ def extract_cl2k_guide_spec(path: Path = CL2K_GUIDE_PATH) -> dict:
         bottom = 1342
         top = bottom - guide_logo_h
 
-        return {
+        _cl2k_guide_cache = {
             "main_left": main_left,
             "main_right": main_right,
             "max_left": max_left,
@@ -180,7 +187,9 @@ def extract_cl2k_guide_spec(path: Path = CL2K_GUIDE_PATH) -> dict:
             "bottom": bottom,
             "gradient_darkest": 1360,
         }
+        return _cl2k_guide_cache
     except Exception:
+        _cl2k_guide_cache = fallback
         return fallback
 
 # ── Image utilities ────────────────────────────────────────────────────────────
@@ -203,20 +212,6 @@ def fit_to_poster(img: Image.Image, focus_x: float = 0.5, focus_y: float = 0.5) 
     left = max(0, min(left, nw - tw))
     top = max(0, min(top, nh - th))
     return resized.crop((left, top, left + tw, top + th))
-
-
-def suggest_background_focus(
-    img: Image.Image,
-    title: str,
-    media_type: str,
-    source: str = "tmdb",
-) -> Tuple[float, float]:
-    """Return a normalized crop focus point for poster framing.
-
-    Simple mode: use a centered crop. For Apple art, the wider background variant
-    usually gives enough breathing room without extra AI steering.
-    """
-    return 0.5, 0.5
 
 
 def make_gradient_overlay(width: int, height: int) -> Image.Image:
@@ -435,20 +430,14 @@ def render_logo_cl2k(
 
 # ── Poster assembly ────────────────────────────────────────────────────────────
 
-def build_base(
-    bg: Image.Image,
-    title: str = "",
-    media_type: str = "movie",
-    bg_source: str = "tmdb",
-) -> Image.Image:
+def build_base(bg: Image.Image) -> Image.Image:
     """
     Assemble the shared base poster:
-      1. Fit background to 1000×1500 using smart crop focus
+      1. Fit background to 1000×1500 (centered crop)
       2. Black gradient overlay (bottom 40%)
       3. White border (25px)
     """
-    focus_x, focus_y = suggest_background_focus(bg, title, media_type, bg_source)
-    base = fit_to_poster(bg.convert("RGBA"), focus_x=focus_x, focus_y=focus_y)
+    base = fit_to_poster(bg.convert("RGBA"))
     gradient = make_gradient_overlay(POSTER_W, POSTER_H)
     base = Image.alpha_composite(base, gradient)
     base = add_white_border(base)

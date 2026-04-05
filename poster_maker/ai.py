@@ -64,7 +64,7 @@ def force_white_logo_gemini(logo: Image.Image, api_key: str):
     contents.append(prompt)
 
     response = client.models.generate_content(
-        model="gemini-3.1-flash-image-preview",
+        model="gemini-2.0-flash",
         contents=contents,
     )
 
