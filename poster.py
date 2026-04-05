@@ -64,6 +64,44 @@ def fetch_images(media_id: int, media_type: str, api_key: str) -> dict:
     return tmdb_get(path, {"include_image_language": "en,null"}, api_key)
 
 
+def fetch_external_ids(media_id: int, media_type: str, api_key: str) -> dict:
+    """Fetch IMDB, TVDB IDs for correct TPDB-style filename."""
+    path = f"/{'tv' if media_type == 'show' else 'movie'}/{media_id}/external_ids"
+    return tmdb_get(path, {}, api_key)
+
+
+def build_filename_stem(canonical: str, year: Optional[int], media_id: int,
+                        ext_ids: dict, media_type: str,
+                        season: Optional[int] = None) -> str:
+    """Build TPDB-compliant filename stem.
+
+    Movies:  Title (Year) {tmdb-ID} {imdb-ttXXX}
+    Shows:   Title (Year) {tmdb-ID} {tvdb-ID} {imdb-ttXXX}
+    Seasons: Title (Year) {tmdb-ID} {tvdb-ID} {imdb-ttXXX} - Season N
+    """
+    safe = canonical.replace("/", "-").replace(":", " -")
+    year_str = f" ({year})" if year else ""
+    tmdb_tag = f"{{tmdb-{media_id}}}"
+
+    imdb_id = ext_ids.get("imdb_id", "")
+    tvdb_id = ext_ids.get("tvdb_id", "")
+
+    imdb_tag = f"{{imdb-{imdb_id}}}" if imdb_id else ""
+    tvdb_tag = f"{{tvdb-{tvdb_id}}}" if tvdb_id else ""
+
+    if media_type == "show":
+        tags = " ".join(filter(None, [tmdb_tag, tvdb_tag, imdb_tag]))
+    else:
+        tags = " ".join(filter(None, [tmdb_tag, imdb_tag]))
+
+    stem = f"{safe}{year_str} {tags}".strip()
+
+    if season is not None:
+        stem += f" - Season {season}"
+
+    return stem
+
+
 def best_background(images: dict) -> Optional[str]:
     """Select best portrait poster image, preferring textless (null language)."""
     posters = images.get("posters", [])
@@ -686,9 +724,12 @@ def main():
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    year_str = f" ({year})" if year else ""
-    safe = canonical.replace("/", "-").replace(":", " -")
-    stem = f"{safe} - Season {args.season}{year_str}" if args.season else f"{safe}{year_str}"
+    print("  Fetching external IDs …")
+    try:
+        ext_ids = fetch_external_ids(media_id, args.media_type, tmdb_key)
+    except Exception:
+        ext_ids = {}
+    stem = build_filename_stem(canonical, year, media_id, ext_ids, args.media_type, args.season)
 
     print()
 
