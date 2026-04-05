@@ -278,118 +278,6 @@ def force_white_logo_gemini(logo: Image.Image, api_key: str) -> Image.Image:
     return Image.fromarray(result, "RGBA"), recommended_width
 
 
-def force_white_logo_openai(logo: Image.Image, api_key: str) -> Image.Image:
-    """Use OpenAI gpt-image-1 inpainting to convert logo to clean white on transparent bg."""
-    from openai import OpenAI
-    import base64
-
-    client = OpenAI(api_key=api_key)
-
-    # Pad logo to square on transparent background (required by API)
-    w, h = logo.size
-    size = max(w, h)
-    square = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    offset = ((size - w) // 2, (size - h) // 2)
-    square.paste(logo.convert("RGBA"), offset)
-
-    # Resize to 1024x1024
-    work = square.resize((1024, 1024), Image.LANCZOS)
-
-    # Mask: fully transparent = edit everything
-    mask = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
-
-    img_buf = io.BytesIO()
-    work.save(img_buf, format="PNG")
-    img_buf.seek(0)
-
-    mask_buf = io.BytesIO()
-    mask.save(mask_buf, format="PNG")
-    mask_buf.seek(0)
-
-    response = client.images.edit(
-        model="gpt-image-1",
-        image=("logo.png", img_buf, "image/png"),
-        mask=("mask.png", mask_buf, "image/png"),
-        prompt=(
-            "Convert this logo into a clean white silhouette on a fully transparent background. "
-            "Make all letter shapes and design elements pure white (#FFFFFF). "
-            "Remove all colour, gradients, and background fills completely. "
-            "Result: white logo, transparent background, no artifacts."
-        ),
-        n=1,
-    )
-
-    item = response.data[0]
-    if hasattr(item, "b64_json") and item.b64_json:
-        img_bytes = base64.b64decode(item.b64_json)
-    else:
-        img_bytes = requests.get(item.url, timeout=30).content
-
-    result = Image.open(io.BytesIO(img_bytes)).convert("RGBA")
-    # Resize back to original logo dimensions
-    result = result.resize((size, size), Image.LANCZOS)
-    # Crop back to original proportions
-    result = result.crop((offset[0], offset[1], offset[0] + w, offset[1] + h))
-    return result
-
-
-def force_white_logo(logo: Image.Image) -> Image.Image:
-    """Convert logo to pure white per CL2K spec ('as white as possible').
-
-    Strategy:
-    1. If the logo is already mostly white/light (avg brightness > 180), just keep
-       the alpha mask and paint everything white.
-    2. If the logo has a coloured background behind lighter letters (e.g. Barbie),
-       isolate the light/white pixels as the foreground and discard the dark background.
-    3. Fall back to full white-paint if all else fails.
-    """
-    import numpy as np
-
-    logo = logo.convert("RGBA")
-    arr = np.array(logo)
-    r, g, b, a = arr[:,:,0], arr[:,:,1], arr[:,:,2], arr[:,:,3]
-
-    visible = a > 10
-    if visible.sum() == 0:
-        return logo
-
-    # Brightness of visible pixels
-    brightness = (r.astype(float) + g.astype(float) + b.astype(float)) / 3.0
-    avg_brightness = brightness[visible].mean()
-
-    result = np.zeros_like(arr)
-    result[:,:,0] = 255
-    result[:,:,1] = 255
-    result[:,:,2] = 255
-
-    if avg_brightness >= 180:
-        # Already light/white logo — just paint white with original alpha
-        result[:,:,3] = a
-    else:
-        # Coloured logo (e.g. Barbie pink) — extract letter shapes via low saturation
-        # White/near-white letters have low colour saturation; coloured bg has high saturation
-        rf, gf, bf = r.astype(float), g.astype(float), b.astype(float)
-        maxc = np.maximum(np.maximum(rf, gf), bf)
-        minc = np.minimum(np.minimum(rf, gf), bf)
-        saturation = np.where(maxc > 0, (maxc - minc) / maxc, 0.0)
-
-        # Low saturation + reasonably bright = letter pixels
-        letter_mask = visible & (saturation < 0.20) & (brightness > 150)
-
-        if letter_mask.sum() < 100:
-            # No clearly white letters — fall back to full alpha
-            result[:,:,3] = a
-        else:
-            # Erode 1px to remove anti-aliasing fringe
-            from scipy.ndimage import binary_erosion
-            try:
-                letter_mask = binary_erosion(letter_mask, iterations=1)
-            except ImportError:
-                pass
-            new_alpha = np.where(letter_mask, np.uint8(255), np.uint8(0))
-            result[:,:,3] = new_alpha
-
-    return Image.fromarray(result, "RGBA")
 
 
 def download_image(url: str) -> Image.Image:
@@ -821,15 +709,10 @@ def main():
                 logo_img = download_image(logo_url)
                 gemini_key = os.environ.get("GEMINI_API_KEY", "")
                 recommended_width = 600
-                if gemini_key:
-                    print("  Converting logo to white via Gemini Flash …")
-                    try:
-                        logo_img, recommended_width = force_white_logo_gemini(logo_img, gemini_key)
-                    except Exception as e:
-                        print(f"  Warning: Gemini logo conversion failed ({e}) — falling back to PIL")
-                        logo_img = force_white_logo(logo_img)
-                else:
-                    logo_img = force_white_logo(logo_img)
+                if not gemini_key:
+                    sys.exit("Error: GEMINI_API_KEY is required for CL2K logo conversion. See .env.example.")
+                print("  Converting logo to white via Gemini Flash …")
+                logo_img, recommended_width = force_white_logo_gemini(logo_img, gemini_key)
                 cl2k = render_logo_cl2k(base, logo_img, season=args.season, recommended_width=recommended_width)
                 save_jpg(cl2k, out_dir / f"{stem}-CL2K.jpg")
             except Exception as e:
