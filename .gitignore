@@ -1,0 +1,17 @@
+# Environment / secrets
+.env
+
+# Generated posters
+*.jpg
+*.png
+*.jpeg
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# macOS
+.DS_Store
